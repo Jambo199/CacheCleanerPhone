@@ -1,6 +1,7 @@
 package io.github.jambo199.cachecleaner
 
 import android.app.Application
+import android.content.Context
 import android.text.format.Formatter
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -37,6 +38,8 @@ data class UiState(
     val helperRunning: Boolean = false,
     val helperSwitchedOn: Boolean = false,
     val hasAllFilesAccess: Boolean = false,
+    /** Hide the Settings pages behind a progress screen while cleaning. */
+    val coverScreen: Boolean = true,
     val scanning: Boolean = false,
     val scanned: Boolean = false,
     val apps: List<AppCacheInfo> = emptyList(),
@@ -51,7 +54,9 @@ data class UiState(
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val _state = MutableStateFlow(UiState())
+    private val prefs = application.getSharedPreferences("settings", Context.MODE_PRIVATE)
+
+    private val _state = MutableStateFlow(UiState(coverScreen = prefs.getBoolean(KEY_COVER_SCREEN, true)))
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var scanJob: Job? = null
@@ -122,7 +127,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         // Our own cache we can simply delete.
         getApplication<Application>().cacheDir.listFiles()?.forEach { it.deleteRecursively() }
         _state.update { it.copy(lastRun = null) }
-        service.startCleaning(targets)
+        service.startCleaning(targets, coverScreen = _state.value.coverScreen)
         return true
     }
 
@@ -131,6 +136,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun dismissResult() = _state.update { it.copy(lastRun = null) }
+
+    fun setCoverScreen(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_COVER_SCREEN, enabled).apply()
+        _state.update { it.copy(coverScreen = enabled) }
+    }
 
     fun clearActivity() {
         viewModelScope.launch(Dispatchers.IO) { ActivityLog.clear(getApplication<Application>()) }
@@ -171,5 +181,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             withContext(Dispatchers.IO) { ActivityLog.save(getApplication<Application>()) }
             scan()
         }
+    }
+
+    private companion object {
+        const val KEY_COVER_SCREEN = "cover_screen"
     }
 }

@@ -45,6 +45,7 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -158,9 +159,11 @@ fun MainScreen(viewModel: MainViewModel) {
             }
             if (state.cleaning == null) {
                 item {
-                    CleanButton(state) {
-                        if (!viewModel.startCleaning()) message("Turn on the auto-clean helper first.")
-                    }
+                    CleanButton(
+                        state = state,
+                        onCoverScreenChange = viewModel::setCoverScreen,
+                        onClean = { if (!viewModel.startCleaning()) message("Turn on the auto-clean helper first.") },
+                    )
                 }
             }
             if (log.isNotEmpty() && state.cleaning == null && state.lastRun == null) {
@@ -417,7 +420,7 @@ private fun SetupCard(
 }
 
 @Composable
-private fun CleanButton(state: UiState, onClean: () -> Unit) {
+private fun CleanButton(state: UiState, onCoverScreenChange: (Boolean) -> Unit, onClean: () -> Unit) {
     val context = LocalContext.current
     val count = state.selectedApps.size
     val canClean = state.helperRunning && count > 0
@@ -435,13 +438,28 @@ private fun CleanButton(state: UiState, onClean: () -> Unit) {
             }
             Text(label, style = MaterialTheme.typography.titleMedium)
         }
-        if (canClean) {
-            Text(
-                "Your phone will flip through each app's Settings page — that's the helper at work. " +
-                    "Tap Stop at the top of the screen to cancel.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .clickable { onCoverScreenChange(!state.coverScreen) }
+                .padding(vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text("Hide Settings while cleaning", style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    if (state.coverScreen) {
+                        "A progress screen covers your phone while the helper works behind it."
+                    } else {
+                        "You'll see your phone flip through each app's Settings page as the helper works."
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.width(12.dp))
+            Switch(checked = state.coverScreen, onCheckedChange = onCoverScreenChange)
         }
     }
 }

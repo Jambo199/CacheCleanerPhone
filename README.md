@@ -6,7 +6,7 @@ It lists every app that's holding cache, biggest first, shows the total, and wit
 
 ## How it works
 
-Since Android 6, Android hasn't let an ordinary app wipe other apps' caches directly. You can still do it by hand, one app at a time: **Settings → Apps → *app* → Storage → Clear cache**. Cache Cleaner does exactly that for you, using an accessibility "helper". When you press **Clean**, the helper opens each app's Settings page and taps **Clear cache**. You'll see your phone flip quickly through those pages, with a progress bar and a **Stop** button at the top of the screen.
+Since Android 6, Android hasn't let an ordinary app wipe other apps' caches directly. You can still do it by hand, one app at a time: **Settings → Apps → *app* → Storage → Clear cache**. Cache Cleaner does exactly that for you, using an accessibility "helper". When you press **Clean**, the helper opens each app's Settings page and taps **Clear cache**. While it works, a full-screen progress page with a **Stop** button covers the phone, so you don't see the pages flipping. The pages still open behind it, because Android only lets the helper press buttons on screen. If you'd rather watch, turn off **Hide Settings while cleaning**. You'll then see each page, with a small progress bar at the top.
 
 The helper is careful about what it taps:
 

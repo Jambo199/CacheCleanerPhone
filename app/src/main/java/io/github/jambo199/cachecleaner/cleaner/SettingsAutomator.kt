@@ -26,6 +26,8 @@ class SettingsAutomator(
     private val service: AccessibilityService,
     private val labels: SettingsLabels,
     private val shouldStop: () -> Boolean,
+    /** False while the full-screen cover is up: it would catch a tap meant for Settings. */
+    private val allowScreenTaps: () -> Boolean,
     private val report: (AppCacheInfo, LogKind, String) -> Unit,
 ) {
     private var current: AppCacheInfo? = null
@@ -101,7 +103,7 @@ class SettingsAutomator(
             val clearButton = NodeSearch.find(root, labels.clearCache)
             if (clearButton != null) {
                 if (NodeSearch.isEnabled(clearButton)) {
-                    if (NodeSearch.click(service, clearButton)) {
+                    if (click(clearButton)) {
                         step("Tapped “${NodeSearch.describe(clearButton)}”")
                         return confirmIfAsked(root.windowId)
                     }
@@ -122,7 +124,7 @@ class SettingsAutomator(
             if (storageClicks < 2 && now - lastStorageClick > RETRY_CLICK_MS) {
                 val byName = NodeSearch.find(root, labels.storage)
                 val storageRow = byName ?: NodeSearch.findSize(root, sizeTexts)
-                if (storageRow != null && NodeSearch.click(service, storageRow)) {
+                if (storageRow != null && click(storageRow)) {
                     step(
                         when {
                             storageClicks > 0 -> "The storage page didn't open, so it tapped “${NodeSearch.describe(storageRow)}” again"
@@ -143,7 +145,7 @@ class SettingsAutomator(
 
             if (Phone.isXiaomi && !openedClearDataMenu) {
                 val clearData = NodeSearch.find(root, labels.clearDataMenu)
-                if (clearData != null && NodeSearch.click(service, clearData)) {
+                if (clearData != null && click(clearData)) {
                     step("Opened the “${NodeSearch.describe(clearData)}” menu to reach “Clear cache”. Opening the menu doesn't delete anything")
                     openedClearDataMenu = true
                     delay(SETTLE_MS * 2)
@@ -197,7 +199,7 @@ class SettingsAutomator(
                         )
                         return Outcome.FAILED
                     }
-                    NodeSearch.click(service, confirm)
+                    click(confirm)
                     step("Your phone asked to confirm clearing the cache, so it tapped “${NodeSearch.describe(confirm)}”")
                     delay(SETTLE_MS)
                     return Outcome.CLEARED
@@ -209,6 +211,8 @@ class SettingsAutomator(
         }
         return Outcome.CLEARED
     }
+
+    private fun click(node: AccessibilityNodeInfo) = NodeSearch.click(service, node, allowScreenTaps())
 
     private fun size(bytes: Long): String = Formatter.formatShortFileSize(service, bytes)
 

@@ -81,11 +81,14 @@ object NodeSearch {
         return node.isEnabled && (target?.isEnabled ?: true)
     }
 
-    /** Clicks [node] through accessibility, or taps its centre if nothing around it is clickable. */
-    fun click(service: AccessibilityService, node: AccessibilityNodeInfo): Boolean {
+    /**
+     * Clicks [node] through accessibility, or, if [allowTap], taps its centre when nothing around
+     * it is clickable.
+     */
+    fun click(service: AccessibilityService, node: AccessibilityNodeInfo, allowTap: Boolean): Boolean {
         val target = clickableAncestor(node)
         if (target != null && target.isEnabled && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
-        return tap(service, node)
+        return allowTap && tap(service, node)
     }
 
     private fun clickableAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {

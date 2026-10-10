@@ -59,12 +59,13 @@ class CleanerAccessibilityService : AccessibilityService() {
         _connected.value = false
     }
 
-    fun startCleaning(apps: List<AppCacheInfo>) {
+    /** With [coverScreen], a progress page hides the Settings pages while the helper works. */
+    fun startCleaning(apps: List<AppCacheInfo>, coverScreen: Boolean) {
         if (job?.isActive == true || apps.isEmpty()) return
         stopRequested = false
         stoppedByUser = false
         CleaningSession.state.value = CleanState.Running(0, apps.size, apps.first().label)
-        job = scope.launch { runCleaning(apps) }
+        job = scope.launch { runCleaning(apps, coverScreen) }
     }
 
     fun stopCleaning() {
@@ -72,9 +73,14 @@ class CleanerAccessibilityService : AccessibilityService() {
         stopRequested = true
     }
 
-    private suspend fun runCleaning(apps: List<AppCacheInfo>) {
-        val overlay = ProgressOverlay(this, onStop = ::stopCleaning)
-        val automator = SettingsAutomator(this, SettingsLabels.load(this), shouldStop = { stopRequested }) { app, kind, text ->
+    private suspend fun runCleaning(apps: List<AppCacheInfo>, coverScreen: Boolean) {
+        val overlay = ProgressOverlay(this, coverScreen, onStop = ::stopCleaning)
+        val automator = SettingsAutomator(
+            service = this,
+            labels = SettingsLabels.load(this),
+            shouldStop = { stopRequested },
+            allowScreenTaps = { overlay.allowsScreenTaps },
+        ) { app, kind, text ->
             ActivityLog.add(kind, text, app)
             overlay.showStep(text)
         }
@@ -84,6 +90,7 @@ class CleanerAccessibilityService : AccessibilityService() {
         var blocked = false
         var screenLocked = false
         var notOpenedInARow = 0
+        var clearedBytes = 0L
 
         ActivityLog.startRun("Started cleaning ${apps.size} ${if (apps.size == 1) "app" else "apps"}")
         overlay.show()
@@ -95,9 +102,10 @@ class CleanerAccessibilityService : AccessibilityService() {
                     break
                 }
                 CleaningSession.state.value = CleanState.Running(index, apps.size, app.label)
-                overlay.update(index, apps.size, app.label)
+                overlay.update(index, apps.size, app.label, clearedBytes)
                 val outcome = automator.clearCache(app) ?: break
                 results += AppResult(app, outcome)
+                if (outcome == Outcome.CLEARED) clearedBytes += app.cacheBytes.coerceAtLeast(0)
 
                 // Some phones (vivo's "Background pop-ups", Xiaomi's "Display pop-up windows while
                 // running in the background") stop the helper from opening Settings pages.
