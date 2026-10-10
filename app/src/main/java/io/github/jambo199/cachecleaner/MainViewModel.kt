@@ -12,6 +12,8 @@ import io.github.jambo199.cachecleaner.cleaner.CleanerAccessibilityService
 import io.github.jambo199.cachecleaner.cleaner.CleaningSession
 import io.github.jambo199.cachecleaner.cleaner.LogKind
 import io.github.jambo199.cachecleaner.cleaner.Outcome
+import io.github.jambo199.cachecleaner.update.UpdateManifest
+import io.github.jambo199.cachecleaner.update.Updater
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -21,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.io.IOException
 
 data class RunSummary(
     val cleared: Int,
@@ -47,6 +50,22 @@ enum class SortOrder(val label: String) {
     }
 }
 
+sealed interface UpdateState {
+    data object Idle : UpdateState
+
+    data object Checking : UpdateState
+
+    data object UpToDate : UpdateState
+
+    /** [hint] explains what to do next, e.g. after being sent to allow installs. */
+    data class Available(val manifest: UpdateManifest, val hint: String? = null) : UpdateState
+
+    data class Downloading(val manifest: UpdateManifest, val progress: Float) : UpdateState
+
+    /** [offerDownloadPage]: the browser, where the user may be signed in, can still get it. */
+    data class Failed(val message: String, val offerDownloadPage: Boolean) : UpdateState
+}
+
 data class UiState(
     val hasUsageAccess: Boolean = false,
     val helperRunning: Boolean = false,
@@ -55,6 +74,10 @@ data class UiState(
     /** Hide the Settings pages behind a progress screen while cleaning. */
     val coverScreen: Boolean = true,
     val sort: SortOrder = SortOrder.MOST_CACHE,
+    val autoUpdate: Boolean = true,
+    val canInstallUpdates: Boolean = false,
+    val versionName: String = "",
+    val update: UpdateState = UpdateState.Idle,
     val scanning: Boolean = false,
     val scanned: Boolean = false,
     val apps: List<AppCacheInfo> = emptyList(),
@@ -75,6 +98,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         UiState(
             coverScreen = prefs.getBoolean(KEY_COVER_SCREEN, true),
             sort = SortOrder.entries.firstOrNull { it.name == prefs.getString(KEY_SORT, null) } ?: SortOrder.MOST_CACHE,
+            autoUpdate = prefs.getBoolean(KEY_AUTO_UPDATE, true),
+            versionName = Updater.installedVersionName(application),
         ),
     )
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -109,9 +134,97 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 hasUsageAccess = usage,
                 helperSwitchedOn = Permissions.isHelperEnabled(context),
                 hasAllFilesAccess = Permissions.hasAllFilesAccess(),
+                canInstallUpdates = Updater.canInstall(context),
             )
         }
         if (!before.scanned || usage != before.hasUsageAccess) scan()
+
+        val lastCheck = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0L)
+        if (_state.value.autoUpdate && System.currentTimeMillis() - lastCheck > AUTO_CHECK_EVERY_MS) {
+            checkForUpdates(manual = false)
+        }
+    }
+
+    /**
+     * Asks GitHub for a newer version. Automatic checks stay quiet unless they find one; a check
+     * from the Settings page always says how it went.
+     */
+    fun checkForUpdates(manual: Boolean) {
+        val current = _state.value.update
+        if (current is UpdateState.Checking || current is UpdateState.Downloading) return
+        // Noted before asking, so coming back to the app mid-check doesn't start a second one.
+        prefs.edit().putLong(KEY_LAST_UPDATE_CHECK, System.currentTimeMillis()).apply()
+        viewModelScope.launch {
+            if (manual) _state.update { it.copy(update = UpdateState.Checking) }
+            val result = withContext(Dispatchers.IO) { Updater.check() }
+            val installed = Updater.installedVersionCode(getApplication<Application>())
+            val next = when (result) {
+                is Updater.CheckResult.Found ->
+                    if (result.manifest.isNewerThan(installed)) UpdateState.Available(result.manifest) else UpdateState.UpToDate
+                is Updater.CheckResult.Failed -> UpdateState.Failed(result.reason, offerDownloadPage = result.needsSignIn)
+            }
+            _state.update { state ->
+                val quietFailure = !manual && next !is UpdateState.Available
+                state.copy(update = if (quietFailure) state.update else next)
+            }
+        }
+    }
+
+    /** Downloads the update and hands it to Android's installer, which asks the user to confirm. */
+    fun installUpdate() {
+        val context = getApplication<Application>()
+        val manifest = when (val current = _state.value.update) {
+            is UpdateState.Available -> current.manifest
+            else -> return
+        }
+        if (!Updater.canInstall(context)) {
+            Updater.openInstallPermission(context)
+            _state.update {
+                it.copy(
+                    update = UpdateState.Available(
+                        manifest,
+                        hint = "Allow Cache Cleaner to install apps on the screen that just opened, then tap Update again.",
+                    ),
+                )
+            }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(update = UpdateState.Downloading(manifest, 0f)) }
+            val next = try {
+                val apk = withContext(Dispatchers.IO) {
+                    var shown = 0
+                    Updater.download(context) { progress ->
+                        // Only redraw for whole-percent changes.
+                        val percent = (progress * 100).toInt()
+                        if (percent != shown) {
+                            shown = percent
+                            _state.update { it.copy(update = UpdateState.Downloading(manifest, progress)) }
+                        }
+                    }
+                }
+                val problem = withContext(Dispatchers.IO) { Updater.verify(context, apk) }
+                when {
+                    problem != null -> UpdateState.Failed(problem, offerDownloadPage = false)
+                    Updater.install(context, apk) -> UpdateState.Available(
+                        manifest,
+                        hint = "Tap Update on Android's screen to finish. Cache Cleaner restarts with the new version.",
+                    )
+                    else -> UpdateState.Failed("Android couldn't open its installer.", offerDownloadPage = true)
+                }
+            } catch (e: IOException) {
+                UpdateState.Failed(
+                    "The download didn't finish. Check your internet connection and try again.",
+                    offerDownloadPage = true,
+                )
+            }
+            _state.update { it.copy(update = next) }
+        }
+    }
+
+    fun setAutoUpdate(enabled: Boolean) {
+        prefs.edit().putBoolean(KEY_AUTO_UPDATE, enabled).apply()
+        _state.update { it.copy(autoUpdate = enabled) }
     }
 
     fun scan() {
@@ -211,5 +324,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private companion object {
         const val KEY_COVER_SCREEN = "cover_screen"
         const val KEY_SORT = "sort"
+        const val KEY_AUTO_UPDATE = "auto_update"
+        const val KEY_LAST_UPDATE_CHECK = "last_update_check"
+
+        /** Automatic update checks happen at most this often. */
+        const val AUTO_CHECK_EVERY_MS = 6 * 60 * 60 * 1000L
     }
 }

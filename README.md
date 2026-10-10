@@ -12,7 +12,7 @@ The helper is careful about what it taps:
 
 - It only ever taps the storage row, **Clear cache**, and a confirmation that is clearly about the cache.
 - It never taps **Clear data** or **Clear storage**. The one exception is on Xiaomi phones, where "Clear data" just opens a menu, and there it only picks "Clear cache".
-- It only acts while a clean is running. It doesn't read, collect or send anything, and the app has no internet permission.
+- It only acts while a clean is running, and it doesn't read, collect or send anything. The app goes online only to check GitHub for updates, and you can turn that off.
 
 On Android 11 and newer there is also a **Quick clean**. It uses Android's built-in "clear app cache" dialog to empty every app's shared cache folder at once, with no helper needed. It can't reach the apps' private caches, so it frees less than a full clean.
 
@@ -29,6 +29,20 @@ On Android 11 and newer there is also a **Quick clean**. It uses Android's built
 4. Tap **Clean**.
 
 If an app can't be cleared automatically, the results card lists it with an **Open** button, so you can finish it by hand.
+
+### Settings and updates
+
+Tap **Settings** at the top of the main screen. There you can:
+
+- choose whether the Settings pages are hidden while cleaning,
+- pick how the app list is sorted,
+- check which permissions are on,
+- clear the activity list,
+- check for updates.
+
+When you open the app, it asks GitHub (at most every few hours) whether there's a newer build. If there is, an **Update now** button appears. Tapping it downloads the new version and checks that it's really Cache Cleaner, signed with the same key. Then it opens Android's own "update this app?" screen. Nothing installs unless you confirm there. The first time, Android asks you to allow Cache Cleaner to install apps.
+
+The updater can only see new versions if this GitHub repository is **public**. While it's private, GitHub only shows the downloads to people who are signed in. The app then offers to open the download page in your browser instead.
 
 ### Seeing what it's doing
 

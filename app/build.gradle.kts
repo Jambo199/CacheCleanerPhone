@@ -6,6 +6,9 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+// Every GitHub build gets a higher version number, so the in-app updater can tell it's newer.
+val ciBuildNumber = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+
 android {
     namespace = "io.github.jambo199.cachecleaner"
     compileSdk = 36
@@ -14,8 +17,8 @@ android {
         applicationId = "io.github.jambo199.cachecleaner"
         minSdk = 26
         targetSdk = 36
-        versionCode = 5
-        versionName = "1.4"
+        versionCode = if (ciBuildNumber != null) 100 + ciBuildNumber else 5
+        versionName = if (ciBuildNumber != null) "1.5.$ciBuildNumber" else "1.5-dev"
     }
 
     signingConfigs {
@@ -67,4 +70,15 @@ dependencies {
     implementation(libs.kotlinx.coroutines.android)
 
     testImplementation(libs.junit)
+}
+
+// version.json is published next to the APK; the in-app updater reads it to spot a newer build.
+tasks.register("writeVersionFile") {
+    val versionCode = android.defaultConfig.versionCode
+    val versionName = android.defaultConfig.versionName
+    val output = layout.buildDirectory.file("version.json")
+    outputs.file(output)
+    doLast {
+        output.get().asFile.writeText("""{"versionCode": $versionCode, "versionName": "$versionName"}""" + "\n")
+    }
 }

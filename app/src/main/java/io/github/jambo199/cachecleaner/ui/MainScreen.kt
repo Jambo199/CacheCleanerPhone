@@ -47,7 +47,6 @@ import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -77,6 +76,8 @@ import io.github.jambo199.cachecleaner.R
 import io.github.jambo199.cachecleaner.RunSummary
 import io.github.jambo199.cachecleaner.SortOrder
 import io.github.jambo199.cachecleaner.UiState
+import io.github.jambo199.cachecleaner.UpdateState
+import io.github.jambo199.cachecleaner.update.Updater
 import io.github.jambo199.cachecleaner.cleaner.ActivityLog
 import io.github.jambo199.cachecleaner.cleaner.AppCacheInfo
 import io.github.jambo199.cachecleaner.cleaner.CleanState
@@ -86,6 +87,8 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val MAX_FAILED_SHOWN = 8
+
+private enum class Screen { MAIN, ACTIVITY, SETTINGS }
 private const val ICON_PX = 120
 
 @Composable
@@ -104,15 +107,18 @@ fun MainScreen(viewModel: MainViewModel) {
     }
     val log by ActivityLog.entries.collectAsStateWithLifecycle()
     val sortedApps = remember(state.apps, state.sort) { state.sort.sort(state.apps) }
-    var showActivity by rememberSaveable { mutableStateOf(false) }
+    var screen by rememberSaveable { mutableStateOf(Screen.MAIN) }
 
-    if (showActivity) {
-        BackHandler { showActivity = false }
-        ActivityScreen(
-            running = state.cleaning != null,
-            onBack = { showActivity = false },
-            onClear = viewModel::clearActivity,
-        )
+    if (screen != Screen.MAIN) {
+        BackHandler { screen = Screen.MAIN }
+        when (screen) {
+            Screen.ACTIVITY -> ActivityScreen(
+                running = state.cleaning != null,
+                onBack = { screen = Screen.MAIN },
+                onClear = viewModel::clearActivity,
+            )
+            else -> SettingsScreen(state, viewModel, onBack = { screen = Screen.MAIN })
+        }
         return
     }
 
@@ -127,7 +133,26 @@ fun MainScreen(viewModel: MainViewModel) {
             ),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            item { Header(state) }
+            item { Header(state, onOpenSettings = { screen = Screen.SETTINGS }) }
+
+            if (state.update is UpdateState.Available || state.update is UpdateState.Downloading) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer),
+                    ) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("Update available", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                            UpdateStatus(
+                                update = state.update,
+                                onCheck = { viewModel.checkForUpdates(manual = true) },
+                                onInstall = viewModel::installUpdate,
+                                onOpenDownloadPage = { Updater.openWebPage(context, Updater.DOWNLOAD_PAGE) },
+                            )
+                        }
+                    }
+                }
+            }
 
             state.cleaning?.let { running ->
                 item {
@@ -135,7 +160,7 @@ fun MainScreen(viewModel: MainViewModel) {
                         running = running,
                         latestStep = log.lastOrNull()?.text,
                         onStop = viewModel::stopCleaning,
-                        onShowActivity = { showActivity = true },
+                        onShowActivity = { screen = Screen.ACTIVITY },
                     )
                 }
             }
@@ -144,7 +169,7 @@ fun MainScreen(viewModel: MainViewModel) {
                     ResultCard(
                         run = run,
                         onOpenApp = { Permissions.openAppInfo(context, it) },
-                        onShowActivity = { showActivity = true },
+                        onShowActivity = { screen = Screen.ACTIVITY },
                         onDismiss = viewModel::dismissResult,
                     )
                 }
@@ -163,16 +188,14 @@ fun MainScreen(viewModel: MainViewModel) {
             }
             if (state.cleaning == null) {
                 item {
-                    CleanButton(
-                        state = state,
-                        onCoverScreenChange = viewModel::setCoverScreen,
-                        onClean = { if (!viewModel.startCleaning()) message("Turn on the auto-clean helper first.") },
-                    )
+                    CleanButton(state) {
+                        if (!viewModel.startCleaning()) message("Turn on the auto-clean helper first.")
+                    }
                 }
             }
             if (log.isNotEmpty() && state.cleaning == null && state.lastRun == null) {
                 item {
-                    OutlinedButton(onClick = { showActivity = true }, modifier = Modifier.fillMaxWidth()) {
+                    OutlinedButton(onClick = { screen = Screen.ACTIVITY }, modifier = Modifier.fillMaxWidth()) {
                         Text("See what it did last time")
                     }
                 }
@@ -211,7 +234,7 @@ fun MainScreen(viewModel: MainViewModel) {
 }
 
 @Composable
-private fun Header(state: UiState) {
+private fun Header(state: UiState, onOpenSettings: () -> Unit) {
     val context = LocalContext.current
     Column(Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -222,7 +245,13 @@ private fun Header(state: UiState) {
                 modifier = Modifier.size(28.dp),
             )
             Spacer(Modifier.width(10.dp))
-            Text("Cache Cleaner", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+            Text(
+                "Cache Cleaner",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = onOpenSettings) { Text("Settings") }
         }
         Spacer(Modifier.height(16.dp))
         when {
@@ -431,7 +460,7 @@ private fun SetupCard(
 }
 
 @Composable
-private fun CleanButton(state: UiState, onCoverScreenChange: (Boolean) -> Unit, onClean: () -> Unit) {
+private fun CleanButton(state: UiState, onClean: () -> Unit) {
     val context = LocalContext.current
     val count = state.selectedApps.size
     val canClean = state.helperRunning && count > 0
@@ -449,28 +478,16 @@ private fun CleanButton(state: UiState, onCoverScreenChange: (Boolean) -> Unit, 
             }
             Text(label, style = MaterialTheme.typography.titleMedium)
         }
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .clickable { onCoverScreenChange(!state.coverScreen) }
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f)) {
-                Text("Hide Settings while cleaning", style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    if (state.coverScreen) {
-                        "A progress screen covers your phone while the helper works behind it."
-                    } else {
-                        "You'll see your phone flip through each app's Settings page as the helper works."
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-            Spacer(Modifier.width(12.dp))
-            Switch(checked = state.coverScreen, onCheckedChange = onCoverScreenChange)
+        if (canClean) {
+            Text(
+                if (state.coverScreen) {
+                    "A progress screen covers your phone while it cleans. You can change this in Settings."
+                } else {
+                    "You'll see your phone flip through each app's Settings page. You can hide this in Settings."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

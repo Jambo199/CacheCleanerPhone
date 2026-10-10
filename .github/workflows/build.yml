@@ -28,15 +28,20 @@ jobs:
       - name: Test and build
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon testDebugUnitTest assembleRelease
+          ./gradlew --no-daemon testDebugUnitTest assembleRelease writeVersionFile
 
       - name: Collect APK
-        run: cp app/build/outputs/apk/release/app-release.apk CacheCleaner.apk
+        run: |
+          cp app/build/outputs/apk/release/app-release.apk CacheCleaner.apk
+          cp app/build/version.json version.json
+          cat version.json
 
       - uses: actions/upload-artifact@v4
         with:
           name: CacheCleaner-apk
-          path: CacheCleaner.apk
+          path: |
+            CacheCleaner.apk
+            version.json
 
       # Keeps one "latest" release with the newest APK, so it can be downloaded straight to a
       # phone from the repository's Releases page.
@@ -46,7 +51,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release delete latest --cleanup-tag --yes || true
-          gh release create latest CacheCleaner.apk \
+          gh release create latest CacheCleaner.apk version.json \
             --target "$GITHUB_SHA" \
             --title "Cache Cleaner (latest build)" \
             --notes "Built from ${GITHUB_REF_NAME} at ${GITHUB_SHA::7}. On your phone, download CacheCleaner.apk and open it to install."
