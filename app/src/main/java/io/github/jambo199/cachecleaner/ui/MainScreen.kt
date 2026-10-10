@@ -146,6 +146,8 @@ fun MainScreen(viewModel: MainViewModel) {
                                 quickClean.launch(Intent(StorageManager.ACTION_CLEAR_APP_CACHE))
                             } catch (e: ActivityNotFoundException) {
                                 message("This phone doesn't offer a quick clean.")
+                            } catch (e: SecurityException) {
+                                message("Android refused the quick clean. Check “All files access” is on.")
                             }
                         },
                     )
