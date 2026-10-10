@@ -31,6 +31,21 @@ object NodeSearch {
 
     fun containsText(root: AccessibilityNodeInfo, text: String): Boolean = find(root, listOf(text)) != null
 
+    /** The first visible node showing one of [sizes], such as a storage row's "231 MB used". */
+    fun findSize(root: AccessibilityNodeInfo, sizes: List<String>): AccessibilityNodeInfo? {
+        if (sizes.isEmpty()) return null
+        var found: AccessibilityNodeInfo? = null
+        walk(root) { node ->
+            if (node.isVisibleToUser &&
+                (LabelMatcher.mentionsSize(node.text, sizes) || LabelMatcher.mentionsSize(node.contentDescription, sizes))
+            ) {
+                found = node
+            }
+            found == null
+        }
+        return found
+    }
+
     /** All text in the window, one node per line. */
     fun allText(root: AccessibilityNodeInfo): String {
         val out = StringBuilder()

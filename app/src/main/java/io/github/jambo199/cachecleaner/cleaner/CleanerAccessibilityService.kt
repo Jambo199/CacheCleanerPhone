@@ -73,6 +73,8 @@ class CleanerAccessibilityService : AccessibilityService() {
         val keyguard = getSystemService(KeyguardManager::class.java)!!
         val results = ArrayList<AppResult>(apps.size)
         var unsupported = false
+        var blocked = false
+        var notOpenedInARow = 0
 
         overlay.show()
         try {
@@ -83,16 +85,29 @@ class CleanerAccessibilityService : AccessibilityService() {
                 val outcome = automator.clearCache(app) ?: break
                 results += AppResult(app, outcome)
 
+                // Some phones (vivo's "Background pop-ups", Xiaomi's "Display pop-up windows while
+                // running in the background") stop the helper from opening Settings pages.
+                notOpenedInARow = if (outcome == Outcome.NOT_OPENED) notOpenedInARow + 1 else 0
+                if (notOpenedInARow == GIVE_UP_AFTER_NOT_OPENED) {
+                    blocked = true
+                    break
+                }
+
                 // If the first few apps all fail, this phone's Settings screens aren't recognised:
                 // stop rather than grind through every app.
-                if (results.size == GIVE_UP_AFTER && results.all { it.outcome == Outcome.FAILED }) {
+                if (results.size == GIVE_UP_AFTER && results.none { it.outcome == Outcome.CLEARED || it.outcome == Outcome.ALREADY_EMPTY }) {
                     unsupported = true
                     break
                 }
             }
         } finally {
             overlay.hide()
-            CleaningSession.state.value = CleanState.Finished(results, requested = apps.size, unsupported = unsupported)
+            CleaningSession.state.value = CleanState.Finished(
+                results,
+                requested = apps.size,
+                unsupported = unsupported,
+                blocked = blocked,
+            )
             runCatching {
                 startActivity(
                     Intent(this, MainActivity::class.java)
@@ -104,6 +119,7 @@ class CleanerAccessibilityService : AccessibilityService() {
 
     companion object {
         private const val GIVE_UP_AFTER = 4
+        private const val GIVE_UP_AFTER_NOT_OPENED = 3
 
         @Volatile
         var instance: CleanerAccessibilityService? = null

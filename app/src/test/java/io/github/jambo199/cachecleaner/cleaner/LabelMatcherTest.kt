@@ -40,6 +40,19 @@ class LabelMatcherTest {
     }
 
     @Test
+    fun `finds a storage row by the app size it shows`() {
+        val sizes = listOf("231 MB")
+        assertTrue(LabelMatcher.mentionsSize("231 MB used in internal storage", sizes))
+        assertTrue(LabelMatcher.mentionsSize("Internal storage, 231 MB used", sizes))
+        assertTrue(LabelMatcher.mentionsSize("Total: 231 MB", sizes))
+        assertFalse(LabelMatcher.mentionsSize("1,231 MB used", sizes))
+        assertFalse(LabelMatcher.mentionsSize("1231 MB used", sizes))
+        assertFalse(LabelMatcher.mentionsSize("231 MBit/s", sizes))
+        assertFalse(LabelMatcher.mentionsSize("Notifications", sizes))
+        assertFalse(LabelMatcher.mentionsSize(null, sizes))
+    }
+
+    @Test
     fun `accepts a clear cache confirmation`() {
         assertTrue(LabelMatcher.isCacheOnlyDialog("Clear cache?\nCancel\nOK", cacheWords, danger))
         assertTrue(LabelMatcher.isCacheOnlyDialog("Vider le cache ?\nAnnuler\nOK", cacheWords, danger))

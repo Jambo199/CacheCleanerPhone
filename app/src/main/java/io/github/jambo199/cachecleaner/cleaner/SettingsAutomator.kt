@@ -3,11 +3,13 @@ package io.github.jambo199.cachecleaner.cleaner
 import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.accessibility.AccessibilityNodeInfo
+import io.github.jambo199.cachecleaner.AppScanner
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 /**
  * Clears one app's cache the way a person would: open its App info page, go to its storage page
@@ -22,10 +24,10 @@ class SettingsAutomator(
     private val labels: SettingsLabels,
     private val shouldStop: () -> Boolean,
 ) {
-    private val isXiaomi = Build.MANUFACTURER.lowercase() in setOf("xiaomi", "redmi", "poco")
-
     /** Returns null if the user stopped the clean before this app was finished. */
     suspend fun clearCache(app: AppCacheInfo): Outcome? {
+        // How Settings will show this app's size, to recognise its storage row by size if not by name.
+        val sizeTexts = withContext(Dispatchers.IO) { AppScanner.sizeTexts(service, app.packageName) }
         val previousWindow = service.rootInActiveWindow?.windowId
         val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", app.packageName, null))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
@@ -35,16 +37,19 @@ class SettingsAutomator(
             return Outcome.FAILED
         }
 
-        // Wait for this app's page, not the previous app's page that may still be showing.
-        waitFor(LAUNCH_TIMEOUT_MS) { root ->
+        // Wait for this app's page. If it never shows up, the previous app's page is still on
+        // screen and must not be mistaken for this one.
+        val opened = waitFor(LAUNCH_TIMEOUT_MS) { root ->
             !isOwnWindow(root) &&
                 (root.windowId != previousWindow || NodeSearch.containsText(root, app.label))
         }
+        if (shouldStop()) return null
+        if (!opened) return Outcome.NOT_OPENED
         delay(SETTLE_MS)
-        return clearFromAppInfo()
+        return clearFromAppInfo(sizeTexts)
     }
 
-    private suspend fun clearFromAppInfo(): Outcome? {
+    private suspend fun clearFromAppInfo(sizeTexts: List<String>): Outcome? {
         val start = SystemClock.uptimeMillis()
         val deadline = start + STEP_TIMEOUT_MS
         var storageClicks = 0
@@ -78,7 +83,7 @@ class SettingsAutomator(
             disabledSince = 0L
 
             if (storageClicks < 2 && now - lastStorageClick > RETRY_CLICK_MS) {
-                val storageRow = NodeSearch.find(root, labels.storage)
+                val storageRow = NodeSearch.find(root, labels.storage) ?: NodeSearch.findSize(root, sizeTexts)
                 if (storageRow != null && NodeSearch.click(service, storageRow)) {
                     storageClicks++
                     lastStorageClick = now
@@ -91,7 +96,7 @@ class SettingsAutomator(
                 }
             }
 
-            if (isXiaomi && !openedClearDataMenu) {
+            if (Phone.isXiaomi && !openedClearDataMenu) {
                 val clearData = NodeSearch.find(root, labels.clearDataMenu)
                 if (clearData != null && NodeSearch.click(service, clearData)) {
                     openedClearDataMenu = true
@@ -147,19 +152,21 @@ class SettingsAutomator(
 
     private fun isOwnWindow(root: AccessibilityNodeInfo) = root.packageName?.toString() == service.packageName
 
-    private suspend fun waitFor(timeoutMs: Long, condition: (AccessibilityNodeInfo) -> Boolean) {
+    /** Returns whether [condition] came true before the timeout. */
+    private suspend fun waitFor(timeoutMs: Long, condition: (AccessibilityNodeInfo) -> Boolean): Boolean {
         val deadline = SystemClock.uptimeMillis() + timeoutMs
         while (SystemClock.uptimeMillis() < deadline && !shouldStop()) {
             val root = service.rootInActiveWindow
-            if (root != null && condition(root)) return
+            if (root != null && condition(root)) return true
             delay(POLL_MS)
         }
+        return false
     }
 
     private companion object {
         const val POLL_MS = 150L
         const val SETTLE_MS = 300L
-        const val LAUNCH_TIMEOUT_MS = 2_500L
+        const val LAUNCH_TIMEOUT_MS = 4_000L
         const val NAVIGATE_TIMEOUT_MS = 2_000L
         const val STEP_TIMEOUT_MS = 8_000L
         const val DISABLED_GRACE_MS = 2_500L

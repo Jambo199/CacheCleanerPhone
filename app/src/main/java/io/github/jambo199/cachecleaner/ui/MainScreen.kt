@@ -70,6 +70,7 @@ import io.github.jambo199.cachecleaner.RunSummary
 import io.github.jambo199.cachecleaner.UiState
 import io.github.jambo199.cachecleaner.cleaner.AppCacheInfo
 import io.github.jambo199.cachecleaner.cleaner.CleanState
+import io.github.jambo199.cachecleaner.cleaner.Phone
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -230,6 +231,7 @@ private fun ResultCard(run: RunSummary, onOpenApp: (String) -> Unit, onDismiss: 
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             val title = when {
+                run.blocked -> "Your phone stopped the helper"
                 run.unsupported -> "Couldn't find the “Clear cache” button"
                 run.stoppedEarly -> "Stopped"
                 else -> "All done"
@@ -244,10 +246,14 @@ private fun ResultCard(run: RunSummary, onOpenApp: (String) -> Unit, onDismiss: 
                     if (run.alreadyEmpty > 0) append(" · ${run.alreadyEmpty} already empty")
                 },
             )
+            if (run.blocked) {
+                Text(blockedAdvice(), style = MaterialTheme.typography.bodyMedium)
+                Button(onClick = { onOpenApp(context.packageName) }) { Text("Open Cache Cleaner's App info") }
+            }
             if (run.unsupported) {
                 Text(
                     "This phone's Settings screens look different from the ones Cache Cleaner knows. " +
-                        "You can still clear an app by hand: tap Open, then Storage, then Clear cache.",
+                        "You can still clear an app by hand: tap Open, go to its storage page, then tap Clear cache.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
@@ -268,6 +274,21 @@ private fun ResultCard(run: RunSummary, onOpenApp: (String) -> Unit, onDismiss: 
             }
         }
     }
+}
+
+private fun blockedAdvice(): String = when {
+    Phone.isVivo ->
+        "vivo phones don't let apps open screens from the background until you allow it. Open " +
+            "Cache Cleaner's App info, tap Permissions, turn on “Background pop-ups” (it can be " +
+            "under “All permissions” or “Other permissions”), then tap Clean again."
+    Phone.isXiaomi ->
+        "Xiaomi phones don't let apps open screens from the background until you allow it. Open " +
+            "Cache Cleaner's App info, tap Other permissions, allow “Display pop-up windows while " +
+            "running in the background”, then tap Clean again."
+    else ->
+        "Cache Cleaner wasn't allowed to open the next app's Settings page. Look in its App info " +
+            "for a permission about pop-ups or opening screens in the background, allow it, then " +
+            "tap Clean again."
 }
 
 @Composable
@@ -300,6 +321,13 @@ private fun HelperCard(switchedOn: Boolean, onOpenAccessibility: () -> Unit, onO
                 "It's switched on but isn't running. Switch it off and on again.",
                 color = MaterialTheme.colorScheme.error,
             )
+            if (Phone.isVivo) {
+                Text(
+                    "vivo can switch helpers off to save battery. To stop that, allow Cache Cleaner " +
+                        "high background power use in Settings → Battery.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
         }
         Text(
             "Switch greyed out, or a “Restricted setting” message? Android 13 and newer block this for " +

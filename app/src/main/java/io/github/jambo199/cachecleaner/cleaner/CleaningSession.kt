@@ -13,7 +13,14 @@ data class AppCacheInfo(
     }
 }
 
-enum class Outcome { CLEARED, ALREADY_EMPTY, FAILED }
+enum class Outcome {
+    CLEARED,
+    ALREADY_EMPTY,
+    FAILED,
+
+    /** The app's Settings page never appeared, e.g. because the phone blocked opening it. */
+    NOT_OPENED,
+}
 
 data class AppResult(val app: AppCacheInfo, val outcome: Outcome)
 
@@ -27,6 +34,8 @@ sealed interface CleanState {
         val requested: Int,
         /** The first few apps all failed, so this phone's Settings screens weren't recognised. */
         val unsupported: Boolean,
+        /** Several apps' Settings pages in a row didn't open: the phone is blocking the helper. */
+        val blocked: Boolean,
     ) : CleanState
 }
 

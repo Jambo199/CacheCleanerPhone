@@ -30,6 +30,13 @@ On Android 11 and newer there is also a **Quick clean**. It uses Android's built
 
 If an app can't be cleared automatically, the results card lists it with an **Open** button, so you can finish it by hand.
 
+### vivo phones
+
+vivo's Settings (Funtouch OS and OriginOS) call the storage row **Internal storage**, and the helper knows that. Two vivo-specific settings can get in the way:
+
+- **Background pop-ups.** If the clean stops with "Your phone stopped the helper", vivo is blocking it from opening the next app's page. Go to **Settings → Apps → Cache Cleaner → Permissions** and turn on **Background pop-ups** (it may be under "All permissions" or "Other permissions"). Then tap Clean again.
+- **Battery saving.** If the helper keeps switching itself off, allow Cache Cleaner high background power use in **Settings → Battery**.
+
 ## Building it yourself
 
 You need JDK 17 and the Android SDK (Android Studio includes both).

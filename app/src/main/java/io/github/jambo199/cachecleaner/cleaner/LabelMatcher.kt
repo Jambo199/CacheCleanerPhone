@@ -10,7 +10,7 @@ object LabelMatcher {
     private val whitespace = Regex("\\s+")
 
     fun normalize(text: CharSequence): String =
-        text.toString().replace(' ', ' ').replace(whitespace, " ").trim().lowercase()
+        text.toString().replace(' ', ' ').replace(' ', ' ').replace(whitespace, " ").trim().lowercase()
 
     /**
      * True when [text] is exactly [label], or starts with it as its own line or comma-separated
@@ -27,6 +27,27 @@ object LabelMatcher {
 
     fun matchesAny(text: CharSequence?, labels: List<String>): Boolean =
         labels.any { matches(text, it) }
+
+    /**
+     * True when [text] shows one of [sizes] (like "231 MB") as a whole number, e.g. a storage row's
+     * "231 MB used in internal storage". Lets us find that row whatever it is called.
+     */
+    fun mentionsSize(text: CharSequence?, sizes: List<String>): Boolean {
+        if (text.isNullOrBlank()) return false
+        val t = normalize(text)
+        return sizes.any { size ->
+            val wanted = normalize(size)
+            if (wanted.isEmpty()) return@any false
+            var index = t.indexOf(wanted)
+            while (index >= 0) {
+                val before = t.getOrNull(index - 1)
+                val after = t.getOrNull(index + wanted.length)
+                if ((before == null || before == ' ') && (after == null || !after.isLetterOrDigit())) return@any true
+                index = t.indexOf(wanted, index + 1)
+            }
+            false
+        }
+    }
 
     /**
      * A confirmation dialog may only be accepted when it talks about the cache and says nothing

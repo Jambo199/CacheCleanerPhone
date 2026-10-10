@@ -9,7 +9,7 @@ import android.content.res.Resources
  * The words the Settings app uses on its App info screens.
  *
  * Where possible they are read from the Settings app itself, so they match the phone's language;
- * the English spellings used by the common phone makers are always included as a fallback.
+ * the spellings used by the common phone makers are always included as a fallback.
  */
 class SettingsLabels(
     /** The App info row that leads to the storage page ("Storage & cache", "Storage", ...). */
@@ -29,11 +29,15 @@ class SettingsLabels(
         private const val AOSP_SETTINGS = "com.android.settings"
         private const val MIUI_SECURITY_CENTER = "com.miui.securitycenter"
 
-        private val ENGLISH_STORAGE = listOf(
-            "Storage & cache", "Storage and cache", "Storage", "Storage usage",
+        // vivo (Funtouch OS / OriginOS) calls the row "Internal storage"; "Penyimpanan & cache" and
+        // "Bersihkan cache" are vivo's Indonesian wording.
+        private val KNOWN_STORAGE = listOf(
+            "Storage & cache", "Storage and cache", "Storage", "Storage usage", "Internal storage",
+            "Penyimpanan & cache",
         )
-        private val ENGLISH_CLEAR_CACHE = listOf(
+        private val KNOWN_CLEAR_CACHE = listOf(
             "Clear cache", "Clear cached data", "Clear caches", "Delete cache", "Delete cached data",
+            "Bersihkan cache",
         )
         private val ENGLISH_CONFIRM = listOf("OK", "Clear", "Clear cache", "Delete", "Confirm", "Yes")
         private val ENGLISH_DANGER = listOf(
@@ -51,12 +55,12 @@ class SettingsLabels(
             val clearCache = LabelMatcher.distinctLabels(
                 lookup(pm, AOSP_SETTINGS, "clear_cache_btn_text") +
                     lookup(pm, MIUI_SECURITY_CENTER, "app_manager_clear_cache") +
-                    ENGLISH_CLEAR_CACHE,
+                    KNOWN_CLEAR_CACHE,
             ).filterNot { label -> danger.any { LabelMatcher.normalize(it) == LabelMatcher.normalize(label) } }
 
             val storage = LabelMatcher.distinctLabels(
                 lookup(pm, AOSP_SETTINGS, "storage_settings_for_app", "storage_label", "storage_settings") +
-                    ENGLISH_STORAGE,
+                    KNOWN_STORAGE,
             )
             val clearDataMenu = LabelMatcher.distinctLabels(
                 lookup(pm, MIUI_SECURITY_CENTER, "app_manager_clear_data") + "Clear data",

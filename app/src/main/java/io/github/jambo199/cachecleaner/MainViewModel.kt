@@ -26,6 +26,7 @@ data class RunSummary(
     val freedBytes: Long?,
     val stoppedEarly: Boolean,
     val unsupported: Boolean,
+    val blocked: Boolean,
 )
 
 data class UiState(
@@ -142,10 +143,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val summary = RunSummary(
                 cleared = run.results.count { it.outcome == Outcome.CLEARED },
                 alreadyEmpty = run.results.count { it.outcome == Outcome.ALREADY_EMPTY },
-                failed = run.results.filter { it.outcome == Outcome.FAILED }.map { it.app },
+                failed = run.results
+                    .filter { it.outcome == Outcome.FAILED || it.outcome == Outcome.NOT_OPENED }
+                    .map { it.app },
                 freedBytes = freed,
-                stoppedEarly = run.results.size < run.requested && !run.unsupported,
+                stoppedEarly = run.results.size < run.requested && !run.unsupported && !run.blocked,
                 unsupported = run.unsupported,
+                blocked = run.blocked,
             )
             _state.update { it.copy(lastRun = summary) }
             scan()

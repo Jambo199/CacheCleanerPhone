@@ -6,6 +6,7 @@ import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Process
+import android.text.format.Formatter
 import io.github.jambo199.cachecleaner.cleaner.AppCacheInfo
 
 object AppScanner {
@@ -51,6 +52,23 @@ object AppScanner {
                 return@associateWith 0L // Uninstalled meanwhile: nothing left.
             }
             cacheBytes(stats, info)
+        }
+    }
+
+    /**
+     * The app's total size the way Settings prints it on its App info page ("231 MB"), or nothing
+     * without usage access.
+     */
+    fun sizeTexts(context: Context, packageName: String): List<String> {
+        if (!Permissions.hasUsageAccess(context)) return emptyList()
+        val stats = context.getSystemService(StorageStatsManager::class.java) ?: return emptyList()
+        return try {
+            val info = applicationInfo(context.packageManager, packageName)
+            val app = stats.queryStatsForPackage(info.storageUuid, packageName, Process.myUserHandle())
+            val total = app.appBytes + app.dataBytes
+            listOf(Formatter.formatFileSize(context, total), Formatter.formatShortFileSize(context, total)).distinct()
+        } catch (e: Exception) {
+            emptyList()
         }
     }
 
