@@ -88,6 +88,17 @@ fun SettingsScreen(state: UiState, viewModel: MainViewModel, onBack: () -> Unit)
             }
 
             item {
+                Section("Background cleaning") {
+                    Text(
+                        "With the free Shizuku app running, Cache Cleaner clears every app's cache in the " +
+                            "background in a few seconds, without opening any screens.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                    ShizukuSetup(state.shizuku, onAllow = viewModel::requestShizukuPermission)
+                }
+            }
+
+            item {
                 Section("Updates") {
                     SwitchRow(
                         title = "Check for updates automatically",

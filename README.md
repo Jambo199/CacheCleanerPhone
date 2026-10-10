@@ -14,6 +14,17 @@ The helper is careful about what it taps:
 - It never taps **Clear data** or **Clear storage**. The one exception is on Xiaomi phones, where "Clear data" just opens a menu, and there it only picks "Clear cache".
 - It only acts while a clean is running, and it doesn't read, collect or send anything. The app goes online only to check GitHub for updates, and you can turn that off.
 
+### Cleaning in the background (with Shizuku)
+
+The helper needs the screen while it works. To keep using your phone instead, set up the free [Shizuku](https://shizuku.rikka.app/) app. Shizuku lets Cache Cleaner use Android's built-in `pm trim-caches` command. That clears every app's cache at once in a few seconds, in the background, with only a notification showing progress and the result.
+
+1. Install Shizuku (from Google Play, or from its [GitHub releases](https://github.com/RikkaApps/Shizuku/releases) if your phone has no Play Store).
+2. Turn on **Developer options** (Settings → About phone → tap the version number 7 times; on vivo it's **Software version**). Connect to Wi-Fi.
+3. Open Shizuku, choose **Start via Wireless debugging**, and follow its pairing steps.
+4. Back in Cache Cleaner, tap **Allow** when it asks to use Shizuku.
+
+From then on, the main screen has a **Clean all apps in the background** button. Shizuku stops when the phone restarts. When that happens, open Shizuku and start it again (step 3, without the pairing). Until then, the app falls back to the helper.
+
 On Android 11 and newer there is also a **Quick clean**. It uses Android's built-in "clear app cache" dialog to empty every app's shared cache folder at once, with no helper needed. It can't reach the apps' private caches, so it frees less than a full clean.
 
 > iPhones can't do this. iOS doesn't allow any app to clear other apps' caches, so this project is Android only.

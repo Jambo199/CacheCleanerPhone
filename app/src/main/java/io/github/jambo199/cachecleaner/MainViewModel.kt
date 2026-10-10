@@ -5,6 +5,10 @@ import android.content.Context
 import android.text.format.Formatter
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.jambo199.cachecleaner.background.BackgroundClean
+import io.github.jambo199.cachecleaner.background.BackgroundCleanState
+import io.github.jambo199.cachecleaner.background.ShizukuAccess
+import io.github.jambo199.cachecleaner.background.ShizukuStatus
 import io.github.jambo199.cachecleaner.cleaner.ActivityLog
 import io.github.jambo199.cachecleaner.cleaner.AppCacheInfo
 import io.github.jambo199.cachecleaner.cleaner.CleanState
@@ -23,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import rikka.shizuku.Shizuku
 import java.io.IOException
 
 data class RunSummary(
@@ -78,6 +83,9 @@ data class UiState(
     val canInstallUpdates: Boolean = false,
     val versionName: String = "",
     val update: UpdateState = UpdateState.Idle,
+    /** Whether background cleaning through Shizuku can be used, or which setup step is next. */
+    val shizuku: ShizukuStatus = ShizukuStatus.NOT_INSTALLED,
+    val background: BackgroundCleanState = BackgroundCleanState.Idle,
     val scanning: Boolean = false,
     val scanned: Boolean = false,
     val apps: List<AppCacheInfo> = emptyList(),
@@ -106,8 +114,24 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private var scanJob: Job? = null
 
+    // Shizuku tells us when it starts, stops, or the user answers its permission prompt.
+    private val shizukuStarted = Shizuku.OnBinderReceivedListener { refreshShizuku() }
+    private val shizukuStopped = Shizuku.OnBinderDeadListener { refreshShizuku() }
+    private val shizukuAnswered = Shizuku.OnRequestPermissionResultListener { _, _ -> refreshShizuku() }
+
     init {
         viewModelScope.launch(Dispatchers.IO) { ActivityLog.load(getApplication<Application>()) }
+        Shizuku.addBinderReceivedListenerSticky(shizukuStarted)
+        Shizuku.addBinderDeadListener(shizukuStopped)
+        Shizuku.addRequestPermissionResultListener(shizukuAnswered)
+        viewModelScope.launch {
+            BackgroundClean.state.collect { background ->
+                val finished = _state.value.background == BackgroundCleanState.Running &&
+                    background != BackgroundCleanState.Running
+                _state.update { it.copy(background = background) }
+                if (finished) scan()
+            }
+        }
         viewModelScope.launch {
             CleanerAccessibilityService.connected.collect { running ->
                 _state.update { it.copy(helperRunning = running) }
@@ -135,6 +159,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 helperSwitchedOn = Permissions.isHelperEnabled(context),
                 hasAllFilesAccess = Permissions.hasAllFilesAccess(),
                 canInstallUpdates = Updater.canInstall(context),
+                shizuku = ShizukuAccess.status(context),
             )
         }
         if (!before.scanned || usage != before.hasUsageAccess) scan()
@@ -220,6 +245,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             _state.update { it.copy(update = next) }
         }
+    }
+
+    private fun refreshShizuku() {
+        _state.update { it.copy(shizuku = ShizukuAccess.status(getApplication<Application>())) }
+    }
+
+    fun requestShizukuPermission() = ShizukuAccess.requestPermission()
+
+    /** Clears every app's cache in the background through Shizuku. Returns false if it isn't ready. */
+    fun startBackgroundClean(): Boolean {
+        val context = getApplication<Application>()
+        if (ShizukuAccess.status(context) != ShizukuStatus.READY) {
+            refreshShizuku()
+            return false
+        }
+        if (_state.value.background == BackgroundCleanState.Running) return true
+        _state.update { it.copy(lastRun = null) }
+        BackgroundClean.start(context)
+        return true
+    }
+
+    fun dismissBackgroundResult() {
+        if (BackgroundClean.state.value != BackgroundCleanState.Running) {
+            BackgroundClean.state.value = BackgroundCleanState.Idle
+        }
+    }
+
+    override fun onCleared() {
+        Shizuku.removeBinderReceivedListener(shizukuStarted)
+        Shizuku.removeBinderDeadListener(shizukuStopped)
+        Shizuku.removeRequestPermissionResultListener(shizukuAnswered)
+        super.onCleared()
     }
 
     fun setAutoUpdate(enabled: Boolean) {

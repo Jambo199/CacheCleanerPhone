@@ -1,6 +1,8 @@
 package io.github.jambo199.cachecleaner.ui
 
+import android.Manifest
 import android.app.Activity
+import android.content.pm.PackageManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -68,6 +70,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.jambo199.cachecleaner.MainViewModel
@@ -78,6 +81,8 @@ import io.github.jambo199.cachecleaner.SortOrder
 import io.github.jambo199.cachecleaner.UiState
 import io.github.jambo199.cachecleaner.UpdateState
 import io.github.jambo199.cachecleaner.update.Updater
+import io.github.jambo199.cachecleaner.background.BackgroundCleanState
+import io.github.jambo199.cachecleaner.background.ShizukuStatus
 import io.github.jambo199.cachecleaner.cleaner.ActivityLog
 import io.github.jambo199.cachecleaner.cleaner.AppCacheInfo
 import io.github.jambo199.cachecleaner.cleaner.CleanState
@@ -104,6 +109,18 @@ fun MainScreen(viewModel: MainViewModel) {
     val quickClean = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         message(if (result.resultCode == Activity.RESULT_OK) "Shared cache folders cleared." else "Quick clean didn't run.")
         viewModel.scan()
+    }
+    fun startBackgroundClean() {
+        if (!viewModel.startBackgroundClean()) message("Shizuku isn't running. Open Shizuku and start it first.")
+    }
+    // The finished notification needs Android 13+'s notification permission; clean either way.
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+        startBackgroundClean()
+    }
+    val onBackgroundClean = {
+        val needsAsking = Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        if (needsAsking) notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS) else startBackgroundClean()
     }
     val log by ActivityLog.entries.collectAsStateWithLifecycle()
     val sortedApps = remember(state.apps, state.sort) { state.sort.sort(state.apps) }
@@ -177,7 +194,20 @@ fun MainScreen(viewModel: MainViewModel) {
             if (!state.hasUsageAccess) {
                 item { UsageAccessCard(onAllow = { Permissions.openUsageAccess(context) }) }
             }
-            if (!state.helperRunning) {
+            // With Shizuku, cleaning happens in the background and the helper becomes optional.
+            val backgroundReady = state.shizuku == ShizukuStatus.READY || state.background != BackgroundCleanState.Idle
+            if (backgroundReady && state.cleaning == null) {
+                item {
+                    BackgroundCleanCard(
+                        background = state.background,
+                        cacheText = if (state.hasUsageAccess) formatSize(context, state.totalCacheBytes) else null,
+                        onStart = onBackgroundClean,
+                        onDismiss = viewModel::dismissBackgroundResult,
+                        onShowActivity = { screen = Screen.ACTIVITY },
+                    )
+                }
+            }
+            if (!state.helperRunning && !backgroundReady) {
                 item {
                     HelperCard(
                         switchedOn = state.helperSwitchedOn,
@@ -186,12 +216,15 @@ fun MainScreen(viewModel: MainViewModel) {
                     )
                 }
             }
-            if (state.cleaning == null) {
+            if (state.cleaning == null && state.background != BackgroundCleanState.Running && (!backgroundReady || state.helperRunning)) {
                 item {
-                    CleanButton(state) {
+                    CleanButton(state, secondary = backgroundReady) {
                         if (!viewModel.startCleaning()) message("Turn on the auto-clean helper first.")
                     }
                 }
+            }
+            if (!backgroundReady) {
+                item { ShizukuSetupCard(state.shizuku, onAllow = viewModel::requestShizukuPermission) }
             }
             if (log.isNotEmpty() && state.cleaning == null && state.lastRun == null) {
                 item {
@@ -460,10 +493,17 @@ private fun SetupCard(
 }
 
 @Composable
-private fun CleanButton(state: UiState, onClean: () -> Unit) {
+private fun CleanButton(state: UiState, secondary: Boolean = false, onClean: () -> Unit) {
     val context = LocalContext.current
     val count = state.selectedApps.size
     val canClean = state.helperRunning && count > 0
+    if (secondary) {
+        // Background cleaning is the main way; this cleans just the ticked apps with the helper.
+        OutlinedButton(onClick = onClean, enabled = canClean, modifier = Modifier.fillMaxWidth()) {
+            Text(if (count == 0) "Nothing ticked below" else "Or clean only the ${plural(count, "ticked app")} with the helper")
+        }
+        return
+    }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Button(
             onClick = onClean,
