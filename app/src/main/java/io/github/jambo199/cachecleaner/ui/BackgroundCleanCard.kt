@@ -12,24 +12,31 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedCard
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.jambo199.cachecleaner.background.BackgroundCleanState
 import io.github.jambo199.cachecleaner.background.ShizukuAccess
 import io.github.jambo199.cachecleaner.background.ShizukuStatus
+import io.github.jambo199.cachecleaner.cleaner.AppCacheInfo
 
 /** Cleaning every app in the background through Shizuku, once it's set up. */
 @Composable
 fun BackgroundCleanCard(
     background: BackgroundCleanState,
     cacheText: String?,
+    helperRunning: Boolean,
     onStart: () -> Unit,
+    onCleanAgain: (List<String>) -> Unit,
+    onOpenApp: (String) -> Unit,
     onDismiss: () -> Unit,
     onShowActivity: () -> Unit,
 ) {
@@ -53,6 +60,15 @@ fun BackgroundCleanCard(
                     Text(
                         "Freed ${Formatter.formatShortFileSize(context, background.freedBytes)}",
                         style = MaterialTheme.typography.headlineSmall,
+                    )
+                    StillHoldingCache(
+                        apps = background.stillHolding,
+                        sizeOf = { app -> app.cacheBytes },
+                        cleanAgainLabel = if (helperRunning) "Clean these again" else "Clean again in the background",
+                        onCleanAgain = {
+                            if (helperRunning) onCleanAgain(background.stillHolding.map { it.packageName }) else onStart()
+                        },
+                        onOpenApp = onOpenApp,
                     )
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         TextButton(onClick = onShowActivity) { Text("See every step") }
@@ -154,3 +170,43 @@ fun ShizukuSetupCard(status: ShizukuStatus, onAllow: () -> Unit) {
         }
     }
 }
+
+/**
+ * Apps whose cache filled straight back up after cleaning, usually because they were open, with a
+ * tip and a button to clean them again.
+ */
+@Composable
+internal fun StillHoldingCache(
+    apps: List<AppCacheInfo>,
+    sizeOf: (AppCacheInfo) -> Long?,
+    cleanAgainLabel: String,
+    onCleanAgain: () -> Unit,
+    onOpenApp: (String) -> Unit,
+) {
+    if (apps.isEmpty()) return
+    val context = LocalContext.current
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(
+            if (apps.size == 1) "1 app still has cache:" else "${apps.size} apps still have cache:",
+            style = MaterialTheme.typography.labelLarge,
+        )
+        apps.take(MAX_SHOWN).forEach { app ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val size = sizeOf(app)?.takeIf { it > 0 }?.let { " · ${Formatter.formatShortFileSize(context, it)}" }.orEmpty()
+                Text("${app.label}$size", Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                TextButton(onClick = { onOpenApp(app.packageName) }) { Text("Open") }
+            }
+        }
+        if (apps.size > MAX_SHOWN) {
+            Text("…and ${apps.size - MAX_SHOWN} more", style = MaterialTheme.typography.bodySmall)
+        }
+        Text(
+            "Apps that are open, games especially, save new files to their cache straight away. Close them " +
+                "first (swipe them away in your recent apps), then clean again.",
+            style = MaterialTheme.typography.bodySmall,
+        )
+        OutlinedButton(onClick = onCleanAgain) { Text(cleanAgainLabel) }
+    }
+}
+
+private const val MAX_SHOWN = 6

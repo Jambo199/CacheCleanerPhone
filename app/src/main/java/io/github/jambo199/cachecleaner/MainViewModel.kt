@@ -34,6 +34,8 @@ data class RunSummary(
     val cleared: Int,
     val alreadyEmpty: Int,
     val failed: List<AppCacheInfo>,
+    /** Apps whose cache filled straight back up (usually because they were open). */
+    val stillHolding: List<AppCacheInfo>,
     /** Null when we can't measure sizes (no usage access). */
     val freedBytes: Long?,
     val stoppedEarly: Boolean,
@@ -310,13 +312,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     /** Returns false if the helper isn't running or nothing is selected. */
-    fun startCleaning(): Boolean {
+    fun startCleaning(): Boolean = startCleaning(_state.value.selectedApps)
+
+    /** Cleans just [packages] again with the helper, e.g. apps that still held cache. */
+    fun cleanAgain(packages: List<String>): Boolean {
+        val apps = _state.value.apps.associateBy { it.packageName }
+        return startCleaning(packages.mapNotNull { apps[it] })
+    }
+
+    private fun startCleaning(targets: List<AppCacheInfo>): Boolean {
         val service = CleanerAccessibilityService.instance ?: return false
-        val targets = _state.value.selectedApps
         if (targets.isEmpty()) return false
         // Our own cache we can simply delete.
         getApplication<Application>().cacheDir.listFiles()?.forEach { it.deleteRecursively() }
         _state.update { it.copy(lastRun = null) }
+        dismissBackgroundResult()
         service.startCleaning(targets, coverScreen = _state.value.coverScreen)
         return true
     }
@@ -359,6 +369,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 failed = run.results
                     .filter { it.outcome == Outcome.FAILED || it.outcome == Outcome.NOT_OPENED }
                     .map { it.app },
+                stillHolding = run.results.filter { it.outcome == Outcome.STILL_HAS_CACHE }.map { it.app },
                 freedBytes = freed,
                 stoppedEarly = run.results.size < run.requested && !run.unsupported && !run.blocked,
                 unsupported = run.unsupported,

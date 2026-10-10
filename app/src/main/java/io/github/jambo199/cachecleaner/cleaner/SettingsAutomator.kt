@@ -39,12 +39,10 @@ class SettingsAutomator(
     /** Returns null if the user stopped the clean before this app was finished. */
     suspend fun clearCache(app: AppCacheInfo): Outcome? {
         current = app
-        val outcome = openAndClear(app)
+        val outcome = openAndClear(app)?.let { if (it == Outcome.CLEARED) checkCleared(app) else it }
         when (outcome) {
-            Outcome.CLEARED -> step(
-                if (app.cacheBytes > 0) "Cache cleared (it was ${size(app.cacheBytes)})" else "Cache cleared",
-                LogKind.DONE,
-            )
+            // checkCleared already reported the sizes for these two.
+            Outcome.CLEARED, Outcome.STILL_HAS_CACHE -> Unit
             Outcome.ALREADY_EMPTY -> step("Nothing to clear: “Clear cache” stayed greyed out", LogKind.SKIPPED)
             Outcome.NOT_OPENED -> step(
                 "Its page didn't open, so it was skipped. Your phone may be stopping Cache Cleaner from opening pages.",
@@ -54,6 +52,30 @@ class SettingsAutomator(
             null -> step("Stopped before finishing this app", LogKind.PROBLEM)
         }
         return outcome
+    }
+
+    /** Measures the app again, so a cache that filled straight back up isn't reported as cleared. */
+    private suspend fun checkCleared(app: AppCacheInfo): Outcome {
+        delay(VERIFY_DELAY_MS)
+        val now = withContext(Dispatchers.IO) { AppScanner.cacheSizes(service, listOf(app.packageName))?.get(app.packageName) }
+        return when {
+            now == null || app.cacheBytes <= 0 -> {
+                step("Cache cleared", LogKind.DONE)
+                Outcome.CLEARED
+            }
+            CacheCheck.isStillHolding(app.cacheBytes, now) -> {
+                step(
+                    "Tapped “Clear cache”, but it still has ${size(now)} of cache (it had ${size(app.cacheBytes)}). " +
+                        "It's probably open and saving new files. Close it and clean again.",
+                    LogKind.PROBLEM,
+                )
+                Outcome.STILL_HAS_CACHE
+            }
+            else -> {
+                step("Cache cleared: ${size(app.cacheBytes)} → ${size(now)}", LogKind.DONE)
+                Outcome.CLEARED
+            }
+        }
     }
 
     private suspend fun openAndClear(app: AppCacheInfo): Outcome? {
@@ -231,6 +253,7 @@ class SettingsAutomator(
 
     private companion object {
         const val POLL_MS = 150L
+        const val VERIFY_DELAY_MS = 500L
         const val SETTLE_MS = 300L
         const val LAUNCH_TIMEOUT_MS = 4_000L
         const val NAVIGATE_TIMEOUT_MS = 2_000L

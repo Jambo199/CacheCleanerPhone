@@ -17,9 +17,12 @@ import android.text.format.Formatter
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
+import io.github.jambo199.cachecleaner.AppScanner
 import io.github.jambo199.cachecleaner.MainActivity
 import io.github.jambo199.cachecleaner.R
 import io.github.jambo199.cachecleaner.cleaner.ActivityLog
+import io.github.jambo199.cachecleaner.cleaner.AppCacheInfo
+import io.github.jambo199.cachecleaner.cleaner.CacheCheck
 import io.github.jambo199.cachecleaner.cleaner.LogKind
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -34,7 +37,8 @@ sealed interface BackgroundCleanState {
 
     data object Running : BackgroundCleanState
 
-    data class Done(val freedBytes: Long) : BackgroundCleanState
+    /** [stillHolding]: apps whose cache filled straight back up, with what they hold now. */
+    data class Done(val freedBytes: Long, val stillHolding: List<AppCacheInfo>) : BackgroundCleanState
 
     data class Failed(val message: String) : BackgroundCleanState
 }
@@ -97,16 +101,26 @@ class BackgroundCleanService : Service() {
             return BackgroundCleanState.Failed("Shizuku isn't running. Open Shizuku and start it, then try again.")
         }
         return withContext(Dispatchers.IO) {
-            val before = freeSpace()
+            // Measured first, so apps whose cache fills straight back up can be pointed out after.
+            val apps = AppScanner.scan(this@BackgroundCleanService).filter { it.cacheBytes > 0 }
+            val sizesBefore = apps.associate { it.packageName to it.cacheBytes }
+            val freeBefore = freeSpace()
             val result = runCatching { ShizukuAccess.run(arrayOf("pm", "trim-caches", TRIM_TARGET), COMMAND_TIMEOUT_SECONDS) }
-            val freed = (freeSpace() - before).coerceAtLeast(0)
+            val freed = (freeSpace() - freeBefore).coerceAtLeast(0)
             val outcome = result.getOrNull()
             when {
                 outcome == null -> BackgroundCleanState.Failed("Couldn't talk to Shizuku. Open Shizuku, make sure it's running, then try again.")
                 outcome.exitCode != 0 -> BackgroundCleanState.Failed(
                     "Android didn't clear the caches" + (outcome.output.takeIf { it.isNotBlank() }?.let { ": ${it.take(200)}" } ?: "."),
                 )
-                else -> BackgroundCleanState.Done(freed)
+                else -> {
+                    val sizesAfter = AppScanner.cacheSizes(this@BackgroundCleanService, sizesBefore.keys).orEmpty()
+                    val byPackage = apps.associateBy { it.packageName }
+                    val stillHolding = CacheCheck.stillHolding(sizesBefore, sizesAfter).mapNotNull { pkg ->
+                        byPackage[pkg]?.copy(cacheBytes = sizesAfter[pkg] ?: 0L)
+                    }
+                    BackgroundCleanState.Done(freed, stillHolding)
+                }
             }
         }
     }
@@ -116,9 +130,23 @@ class BackgroundCleanService : Service() {
         BackgroundClean.state.value = state
         when (state) {
             is BackgroundCleanState.Done -> {
+                val freed = Formatter.formatShortFileSize(this, state.freedBytes)
                 ActivityLog.add(LogKind.DONE, "Android cleared every app's cache")
-                ActivityLog.add(LogKind.DONE, "Freed ${Formatter.formatShortFileSize(this, state.freedBytes)} in total")
-                showResult("Cache cleared", "Freed ${Formatter.formatShortFileSize(this, state.freedBytes)}")
+                for (app in state.stillHolding) {
+                    ActivityLog.add(
+                        LogKind.PROBLEM,
+                        "Still has ${Formatter.formatShortFileSize(this, app.cacheBytes)} of cache. It's probably open " +
+                            "and saving new files. Close it and clean again.",
+                        app,
+                    )
+                }
+                ActivityLog.add(LogKind.DONE, "Freed $freed in total")
+                val leftovers = when (state.stillHolding.size) {
+                    0 -> ""
+                    1 -> " ${state.stillHolding[0].label} still has some, probably because it's open."
+                    else -> " ${state.stillHolding.size} apps still have some, probably because they're open."
+                }
+                showResult("Cache cleared", "Freed $freed.$leftovers")
             }
             is BackgroundCleanState.Failed -> {
                 ActivityLog.add(LogKind.PROBLEM, state.message)

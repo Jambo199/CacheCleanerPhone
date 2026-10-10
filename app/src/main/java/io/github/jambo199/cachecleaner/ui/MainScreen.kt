@@ -183,9 +183,16 @@ fun MainScreen(viewModel: MainViewModel) {
             }
             state.lastRun?.let { run ->
                 item {
+                    val currentSizes = state.apps.associate { it.packageName to it.cacheBytes }
                     ResultCard(
                         run = run,
+                        currentSize = { app -> currentSizes[app.packageName] },
                         onOpenApp = { Permissions.openAppInfo(context, it) },
+                        onCleanAgain = {
+                            if (!viewModel.cleanAgain(run.stillHolding.map { it.packageName })) {
+                                message("Turn on the auto-clean helper first.")
+                            }
+                        },
                         onShowActivity = { screen = Screen.ACTIVITY },
                         onDismiss = viewModel::dismissResult,
                     )
@@ -201,7 +208,12 @@ fun MainScreen(viewModel: MainViewModel) {
                     BackgroundCleanCard(
                         background = state.background,
                         cacheText = if (state.hasUsageAccess) formatSize(context, state.totalCacheBytes) else null,
+                        helperRunning = state.helperRunning,
                         onStart = onBackgroundClean,
+                        onCleanAgain = { packages ->
+                            if (!viewModel.cleanAgain(packages)) message("Turn on the auto-clean helper first.")
+                        },
+                        onOpenApp = { Permissions.openAppInfo(context, it) },
                         onDismiss = viewModel::dismissBackgroundResult,
                         onShowActivity = { screen = Screen.ACTIVITY },
                     )
@@ -351,7 +363,9 @@ private fun RunningCard(
 @Composable
 private fun ResultCard(
     run: RunSummary,
+    currentSize: (AppCacheInfo) -> Long?,
     onOpenApp: (String) -> Unit,
+    onCleanAgain: () -> Unit,
     onShowActivity: () -> Unit,
     onDismiss: () -> Unit,
 ) {
@@ -388,6 +402,13 @@ private fun ResultCard(
                     style = MaterialTheme.typography.bodyMedium,
                 )
             }
+            StillHoldingCache(
+                apps = run.stillHolding,
+                sizeOf = currentSize,
+                cleanAgainLabel = "Clean these again",
+                onCleanAgain = onCleanAgain,
+                onOpenApp = onOpenApp,
+            )
             if (run.failed.isNotEmpty()) {
                 Text("Couldn't clear automatically:", style = MaterialTheme.typography.labelLarge)
                 run.failed.take(MAX_FAILED_SHOWN).forEach { app ->

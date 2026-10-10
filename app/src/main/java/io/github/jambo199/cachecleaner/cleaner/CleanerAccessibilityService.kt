@@ -117,7 +117,7 @@ class CleanerAccessibilityService : AccessibilityService() {
 
                 // If the first few apps all fail, this phone's Settings screens aren't recognised:
                 // stop rather than grind through every app.
-                if (results.size == GIVE_UP_AFTER && results.none { it.outcome == Outcome.CLEARED || it.outcome == Outcome.ALREADY_EMPTY }) {
+                if (results.size == GIVE_UP_AFTER && results.all { it.outcome == Outcome.FAILED || it.outcome == Outcome.NOT_OPENED }) {
                     unsupported = true
                     break
                 }

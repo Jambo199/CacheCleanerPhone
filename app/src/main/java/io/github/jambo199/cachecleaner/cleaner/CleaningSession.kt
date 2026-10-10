@@ -20,6 +20,9 @@ enum class Outcome {
 
     /** The app's Settings page never appeared, e.g. because the phone blocked opening it. */
     NOT_OPENED,
+
+    /** "Clear cache" was pressed, but the app still holds most of its cache (it was probably open). */
+    STILL_HAS_CACHE,
 }
 
 data class AppResult(val app: AppCacheInfo, val outcome: Outcome)
