@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Cache Cleaner</string>
+    <string name="accessibility_service_label">Cache Cleaner auto-clean helper</string>
+    <string name="accessibility_service_description">Lets Cache Cleaner open each app\'s page in Settings and tap \"Clear cache\" for you when you press Clean. It only acts while a clean is running, never touches \"Clear data\" or \"Clear storage\", and doesn\'t collect or send anything.</string>
+</resources>
