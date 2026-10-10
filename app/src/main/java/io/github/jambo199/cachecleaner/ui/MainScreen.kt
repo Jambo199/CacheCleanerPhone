@@ -36,6 +36,8 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -73,6 +75,7 @@ import io.github.jambo199.cachecleaner.MainViewModel
 import io.github.jambo199.cachecleaner.Permissions
 import io.github.jambo199.cachecleaner.R
 import io.github.jambo199.cachecleaner.RunSummary
+import io.github.jambo199.cachecleaner.SortOrder
 import io.github.jambo199.cachecleaner.UiState
 import io.github.jambo199.cachecleaner.cleaner.ActivityLog
 import io.github.jambo199.cachecleaner.cleaner.AppCacheInfo
@@ -100,6 +103,7 @@ fun MainScreen(viewModel: MainViewModel) {
         viewModel.scan()
     }
     val log by ActivityLog.entries.collectAsStateWithLifecycle()
+    val sortedApps = remember(state.apps, state.sort) { state.sort.sort(state.apps) }
     var showActivity by rememberSaveable { mutableStateOf(false) }
 
     if (showActivity) {
@@ -191,8 +195,15 @@ fun MainScreen(viewModel: MainViewModel) {
                 }
             }
 
-            item { ListHeader(state, onSelectAll = viewModel::selectAll, onRescan = viewModel::scan) }
-            items(state.apps, key = { it.packageName }) { app ->
+            item {
+                ListHeader(
+                    state = state,
+                    onSort = viewModel::setSort,
+                    onSelectAll = viewModel::selectAll,
+                    onRescan = viewModel::scan,
+                )
+            }
+            items(sortedApps, key = { it.packageName }) { app ->
                 AppRow(app, checked = app.packageName in state.selected, onToggle = { viewModel.toggle(app.packageName) })
             }
         }
@@ -484,14 +495,50 @@ private fun QuickCleanCard(hasAccess: Boolean, onGrant: () -> Unit, onRun: () ->
 }
 
 @Composable
-private fun ListHeader(state: UiState, onSelectAll: (Boolean) -> Unit, onRescan: () -> Unit) {
+private fun ListHeader(
+    state: UiState,
+    onSort: (SortOrder) -> Unit,
+    onSelectAll: (Boolean) -> Unit,
+    onRescan: () -> Unit,
+) {
     val allSelected = state.apps.isNotEmpty() && state.selected.size == state.apps.size
-    Row(Modifier.fillMaxWidth().padding(top = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text("Apps", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
-        if (state.scanning) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-        TextButton(onClick = onRescan, enabled = !state.scanning && state.cleaning == null) { Text("Rescan") }
-        TextButton(onClick = { onSelectAll(!allSelected) }, enabled = state.apps.isNotEmpty()) {
-            Text(if (allSelected) "Select none" else "Select all")
+    Column(Modifier.fillMaxWidth().padding(top = 8.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text("Apps", style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            if (state.scanning) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            TextButton(onClick = onRescan, enabled = !state.scanning && state.cleaning == null) { Text("Rescan") }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SortMenu(state.sort, onSort)
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = { onSelectAll(!allSelected) }, enabled = state.apps.isNotEmpty()) {
+                Text(if (allSelected) "Select none" else "Select all")
+            }
+        }
+    }
+}
+
+/** A drop-down to order the list by most cache, least cache, or name. */
+@Composable
+private fun SortMenu(sort: SortOrder, onSort: (SortOrder) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { open = true }) {
+            Text(if (open) "${sort.label} ▴" else "${sort.label} ▾")
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            SortOrder.entries.forEach { order ->
+                DropdownMenuItem(
+                    text = { Text(order.label) },
+                    onClick = {
+                        onSort(order)
+                        open = false
+                    },
+                    leadingIcon = {
+                        Text(if (order == sort) "✓" else "", modifier = Modifier.width(16.dp))
+                    },
+                )
+            }
         }
     }
 }

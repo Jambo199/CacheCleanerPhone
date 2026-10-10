@@ -2,7 +2,7 @@
 
 An Android app that clears the cache of all your apps in one go.
 
-It lists every app that's holding cache, biggest first, shows the total, and with one tap clears them all. Then it tells you how much space it freed.
+It lists every app that's holding cache and shows the total. With one tap it clears them all, then tells you how much space it freed. The **Sort** drop-down above the list puts the apps with the most cache first, the least cache first, or in name order.
 
 ## How it works
 

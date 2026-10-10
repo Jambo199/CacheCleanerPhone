@@ -33,6 +33,20 @@ data class RunSummary(
     val blocked: Boolean,
 )
 
+/** How the app list is ordered. */
+enum class SortOrder(val label: String) {
+    MOST_CACHE("Most cache first"),
+    LEAST_CACHE("Least cache first"),
+    NAME("Name (A–Z)"),
+    ;
+
+    fun sort(apps: List<AppCacheInfo>): List<AppCacheInfo> = when (this) {
+        MOST_CACHE -> apps.sortedWith(compareByDescending<AppCacheInfo> { it.cacheBytes }.thenBy { it.label.lowercase() })
+        LEAST_CACHE -> apps.sortedWith(compareBy<AppCacheInfo> { it.cacheBytes }.thenBy { it.label.lowercase() })
+        NAME -> apps.sortedBy { it.label.lowercase() }
+    }
+}
+
 data class UiState(
     val hasUsageAccess: Boolean = false,
     val helperRunning: Boolean = false,
@@ -40,6 +54,7 @@ data class UiState(
     val hasAllFilesAccess: Boolean = false,
     /** Hide the Settings pages behind a progress screen while cleaning. */
     val coverScreen: Boolean = true,
+    val sort: SortOrder = SortOrder.MOST_CACHE,
     val scanning: Boolean = false,
     val scanned: Boolean = false,
     val apps: List<AppCacheInfo> = emptyList(),
@@ -56,7 +71,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val prefs = application.getSharedPreferences("settings", Context.MODE_PRIVATE)
 
-    private val _state = MutableStateFlow(UiState(coverScreen = prefs.getBoolean(KEY_COVER_SCREEN, true)))
+    private val _state = MutableStateFlow(
+        UiState(
+            coverScreen = prefs.getBoolean(KEY_COVER_SCREEN, true),
+            sort = SortOrder.entries.firstOrNull { it.name == prefs.getString(KEY_SORT, null) } ?: SortOrder.MOST_CACHE,
+        ),
+    )
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     private var scanJob: Job? = null
@@ -137,6 +157,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissResult() = _state.update { it.copy(lastRun = null) }
 
+    fun setSort(sort: SortOrder) {
+        prefs.edit().putString(KEY_SORT, sort.name).apply()
+        _state.update { it.copy(sort = sort) }
+    }
+
     fun setCoverScreen(enabled: Boolean) {
         prefs.edit().putBoolean(KEY_COVER_SCREEN, enabled).apply()
         _state.update { it.copy(coverScreen = enabled) }
@@ -185,5 +210,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private companion object {
         const val KEY_COVER_SCREEN = "cover_screen"
+        const val KEY_SORT = "sort"
     }
 }
