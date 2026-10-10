@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.storage.StorageManager
 import android.text.format.Formatter
 import android.util.LruCache
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.Image
@@ -48,9 +49,12 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,6 +64,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -68,6 +73,7 @@ import io.github.jambo199.cachecleaner.Permissions
 import io.github.jambo199.cachecleaner.R
 import io.github.jambo199.cachecleaner.RunSummary
 import io.github.jambo199.cachecleaner.UiState
+import io.github.jambo199.cachecleaner.cleaner.ActivityLog
 import io.github.jambo199.cachecleaner.cleaner.AppCacheInfo
 import io.github.jambo199.cachecleaner.cleaner.CleanState
 import io.github.jambo199.cachecleaner.cleaner.Phone
@@ -92,6 +98,18 @@ fun MainScreen(viewModel: MainViewModel) {
         message(if (result.resultCode == Activity.RESULT_OK) "Shared cache folders cleared." else "Quick clean didn't run.")
         viewModel.scan()
     }
+    val log by ActivityLog.entries.collectAsStateWithLifecycle()
+    var showActivity by rememberSaveable { mutableStateOf(false) }
+
+    if (showActivity) {
+        BackHandler { showActivity = false }
+        ActivityScreen(
+            running = state.cleaning != null,
+            onBack = { showActivity = false },
+            onClear = viewModel::clearActivity,
+        )
+        return
+    }
 
     Scaffold(snackbarHost = { SnackbarHost(snackbar) }) { padding ->
         LazyColumn(
@@ -107,13 +125,21 @@ fun MainScreen(viewModel: MainViewModel) {
             item { Header(state) }
 
             state.cleaning?.let { running ->
-                item { RunningCard(running, onStop = viewModel::stopCleaning) }
+                item {
+                    RunningCard(
+                        running = running,
+                        latestStep = log.lastOrNull()?.text,
+                        onStop = viewModel::stopCleaning,
+                        onShowActivity = { showActivity = true },
+                    )
+                }
             }
             state.lastRun?.let { run ->
                 item {
                     ResultCard(
                         run = run,
                         onOpenApp = { Permissions.openAppInfo(context, it) },
+                        onShowActivity = { showActivity = true },
                         onDismiss = viewModel::dismissResult,
                     )
                 }
@@ -134,6 +160,13 @@ fun MainScreen(viewModel: MainViewModel) {
                 item {
                     CleanButton(state) {
                         if (!viewModel.startCleaning()) message("Turn on the auto-clean helper first.")
+                    }
+                }
+            }
+            if (log.isNotEmpty() && state.cleaning == null && state.lastRun == null) {
+                item {
+                    OutlinedButton(onClick = { showActivity = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text("See what it did last time")
                     }
                 }
             }
@@ -204,7 +237,12 @@ private fun Header(state: UiState) {
 }
 
 @Composable
-private fun RunningCard(running: CleanState.Running, onStop: () -> Unit) {
+private fun RunningCard(
+    running: CleanState.Running,
+    latestStep: String?,
+    onStop: () -> Unit,
+    onShowActivity: () -> Unit,
+) {
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
@@ -213,17 +251,34 @@ private fun RunningCard(running: CleanState.Running, onStop: () -> Unit) {
                 fontWeight = FontWeight.SemiBold,
             )
             Text(running.current, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            latestStep?.let {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             LinearProgressIndicator(
                 progress = { running.done / running.total.coerceAtLeast(1).toFloat() },
                 modifier = Modifier.fillMaxWidth(),
             )
-            OutlinedButton(onClick = onStop) { Text("Stop") }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onStop) { Text("Stop") }
+                TextButton(onClick = onShowActivity) { Text("See every step") }
+            }
         }
     }
 }
 
 @Composable
-private fun ResultCard(run: RunSummary, onOpenApp: (String) -> Unit, onDismiss: () -> Unit) {
+private fun ResultCard(
+    run: RunSummary,
+    onOpenApp: (String) -> Unit,
+    onShowActivity: () -> Unit,
+    onDismiss: () -> Unit,
+) {
     val context = LocalContext.current
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -270,6 +325,7 @@ private fun ResultCard(run: RunSummary, onOpenApp: (String) -> Unit, onDismiss: 
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onShowActivity) { Text("See every step") }
                 TextButton(onClick = onDismiss) { Text("OK") }
             }
         }
@@ -450,12 +506,12 @@ private fun AppRow(app: AppCacheInfo, checked: Boolean, onToggle: () -> Unit) {
 }
 
 @Composable
-private fun AppIcon(packageName: String) {
+internal fun AppIcon(packageName: String, size: Dp = 40.dp) {
     val context = LocalContext.current
     val icon by produceState(initialValue = IconCache.peek(packageName), packageName) {
         if (value == null) value = withContext(Dispatchers.IO) { IconCache.load(context, packageName) }
     }
-    val modifier = Modifier.size(40.dp)
+    val modifier = Modifier.size(size)
     val bitmap = icon
     if (bitmap != null) {
         Image(bitmap, contentDescription = null, modifier = modifier)

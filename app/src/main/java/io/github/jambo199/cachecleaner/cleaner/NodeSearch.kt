@@ -14,6 +14,7 @@ object NodeSearch {
 
     private const val MAX_NODES = 1500
     private const val MAX_CLIMB = 5
+    private const val MAX_DESCRIPTION = 60
 
     /** The first node whose text or description is one of [labels], preferring visible ones. */
     fun find(root: AccessibilityNodeInfo, labels: List<String>): AccessibilityNodeInfo? {
@@ -30,6 +31,12 @@ object NodeSearch {
     }
 
     fun containsText(root: AccessibilityNodeInfo, text: String): Boolean = find(root, listOf(text)) != null
+
+    /** The words on a button or row as the user sees them, for the activity screen. */
+    fun describe(node: AccessibilityNodeInfo): String {
+        val text = node.text?.takeIf { it.isNotBlank() } ?: node.contentDescription ?: return "?"
+        return text.toString().lineSequence().first().trim().take(MAX_DESCRIPTION)
+    }
 
     /** The first visible node showing one of [sizes], such as a storage row's "231 MB used". */
     fun findSize(root: AccessibilityNodeInfo, sizes: List<String>): AccessibilityNodeInfo? {

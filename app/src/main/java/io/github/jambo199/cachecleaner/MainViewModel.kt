@@ -1,12 +1,15 @@
 package io.github.jambo199.cachecleaner
 
 import android.app.Application
+import android.text.format.Formatter
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import io.github.jambo199.cachecleaner.cleaner.ActivityLog
 import io.github.jambo199.cachecleaner.cleaner.AppCacheInfo
 import io.github.jambo199.cachecleaner.cleaner.CleanState
 import io.github.jambo199.cachecleaner.cleaner.CleanerAccessibilityService
 import io.github.jambo199.cachecleaner.cleaner.CleaningSession
+import io.github.jambo199.cachecleaner.cleaner.LogKind
 import io.github.jambo199.cachecleaner.cleaner.Outcome
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -54,6 +57,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var scanJob: Job? = null
 
     init {
+        viewModelScope.launch(Dispatchers.IO) { ActivityLog.load(getApplication<Application>()) }
         viewModelScope.launch {
             CleanerAccessibilityService.connected.collect { running ->
                 _state.update { it.copy(helperRunning = running) }
@@ -128,6 +132,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun dismissResult() = _state.update { it.copy(lastRun = null) }
 
+    fun clearActivity() {
+        viewModelScope.launch(Dispatchers.IO) { ActivityLog.clear(getApplication<Application>()) }
+    }
+
     private fun summarize(run: CleanState.Finished) {
         viewModelScope.launch {
             // Settings clears caches in the background; give the last app a moment to finish.
@@ -152,6 +160,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 blocked = run.blocked,
             )
             _state.update { it.copy(lastRun = summary) }
+            when {
+                freed == null -> ActivityLog.add(LogKind.SKIPPED, "Allow usage access to see how much space was freed")
+                freed > 0 -> ActivityLog.add(
+                    LogKind.DONE,
+                    "Freed ${Formatter.formatShortFileSize(getApplication<Application>(), freed)} in total",
+                )
+                else -> ActivityLog.add(LogKind.SKIPPED, "No space was freed this time")
+            }
+            withContext(Dispatchers.IO) { ActivityLog.save(getApplication<Application>()) }
             scan()
         }
     }

@@ -30,6 +30,10 @@ On Android 11 and newer there is also a **Quick clean**. It uses Android's built
 
 If an app can't be cleared automatically, the results card lists it with an **Open** button, so you can finish it by hand.
 
+### Seeing what it's doing
+
+Tap **See every step** (or **See what it did last time**) to open the activity screen. It lists everything the helper did in plain words, grouped by app: which page it opened, what it tapped, and whether the cache was cleared. Each app is marked ✓ cleared, – nothing to clear, or ! a problem. The list fills in live while a clean runs, and the bar at the top of the screen shows the current step too. The last clean's list is kept until the next one starts.
+
 ### vivo phones
 
 vivo's Settings (Funtouch OS and OriginOS) call the storage row **Internal storage**, and the helper knows that. Two vivo-specific settings can get in the way:

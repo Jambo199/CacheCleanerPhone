@@ -31,6 +31,7 @@ class ProgressOverlay(
     private val windowManager = service.getSystemService(WindowManager::class.java)!!
     private var root: View? = null
     private var title: TextView? = null
+    private var stepLine: TextView? = null
     private var bar: ProgressBar? = null
 
     fun show() {
@@ -40,6 +41,11 @@ class ProgressOverlay(
             textSize = 15f
             maxLines = 2
             text = "Getting ready…"
+        }
+        val stepText = TextView(service).apply {
+            setTextColor(Color.argb(200, 255, 255, 255))
+            textSize = 13f
+            maxLines = 2
         }
         val progressBar = ProgressBar(service, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
@@ -56,6 +62,7 @@ class ProgressOverlay(
         val column = LinearLayout(service).apply {
             orientation = LinearLayout.VERTICAL
             addView(statusText)
+            addView(stepText)
             addView(progressBar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         }
         val card = LinearLayout(service).apply {
@@ -90,6 +97,7 @@ class ProgressOverlay(
             windowManager.addView(container, params)
             root = container
             title = statusText
+            stepLine = stepText
             bar = progressBar
         } catch (e: RuntimeException) {
             // The overlay is a nicety; cleaning works without it.
@@ -101,10 +109,16 @@ class ProgressOverlay(
         bar?.progress = done * 100 / total.coerceAtLeast(1)
     }
 
+    /** The step the helper is on right now, in plain words. */
+    fun showStep(text: String) {
+        stepLine?.text = text
+    }
+
     fun hide() {
         root?.let { runCatching { windowManager.removeView(it) } }
         root = null
         title = null
+        stepLine = null
         bar = null
     }
 

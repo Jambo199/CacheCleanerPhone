@@ -27,6 +27,9 @@ class CleanerAccessibilityService : AccessibilityService() {
     @Volatile
     private var stopRequested = false
 
+    @Volatile
+    private var stoppedByUser = false
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -59,27 +62,38 @@ class CleanerAccessibilityService : AccessibilityService() {
     fun startCleaning(apps: List<AppCacheInfo>) {
         if (job?.isActive == true || apps.isEmpty()) return
         stopRequested = false
+        stoppedByUser = false
         CleaningSession.state.value = CleanState.Running(0, apps.size, apps.first().label)
         job = scope.launch { runCleaning(apps) }
     }
 
     fun stopCleaning() {
+        stoppedByUser = true
         stopRequested = true
     }
 
     private suspend fun runCleaning(apps: List<AppCacheInfo>) {
-        val automator = SettingsAutomator(this, SettingsLabels.load(this)) { stopRequested }
         val overlay = ProgressOverlay(this, onStop = ::stopCleaning)
+        val automator = SettingsAutomator(this, SettingsLabels.load(this), shouldStop = { stopRequested }) { app, kind, text ->
+            ActivityLog.add(kind, text, app)
+            overlay.showStep(text)
+        }
         val keyguard = getSystemService(KeyguardManager::class.java)!!
         val results = ArrayList<AppResult>(apps.size)
         var unsupported = false
         var blocked = false
+        var screenLocked = false
         var notOpenedInARow = 0
 
+        ActivityLog.startRun("Started cleaning ${apps.size} ${if (apps.size == 1) "app" else "apps"}")
         overlay.show()
         try {
             for ((index, app) in apps.withIndex()) {
-                if (stopRequested || keyguard.isKeyguardLocked) break
+                if (stopRequested) break
+                if (keyguard.isKeyguardLocked) {
+                    screenLocked = true
+                    break
+                }
                 CleaningSession.state.value = CleanState.Running(index, apps.size, app.label)
                 overlay.update(index, apps.size, app.label)
                 val outcome = automator.clearCache(app) ?: break
@@ -102,6 +116,18 @@ class CleanerAccessibilityService : AccessibilityService() {
             }
         } finally {
             overlay.hide()
+            val finishedAll = results.size == apps.size && !blocked && !unsupported
+            ActivityLog.add(
+                if (finishedAll) LogKind.DONE else LogKind.PROBLEM,
+                when {
+                    blocked -> "Stopped: your phone kept the helper from opening apps' pages"
+                    unsupported -> "Stopped: this phone's Settings screens look different from the ones Cache Cleaner knows"
+                    screenLocked -> "Stopped because the screen locked"
+                    stoppedByUser -> "Stopped after ${results.size} of ${apps.size} apps because you pressed Stop"
+                    !finishedAll -> "Stopped after ${results.size} of ${apps.size} apps because the helper was switched off"
+                    else -> "Went through all ${apps.size} ${if (apps.size == 1) "app" else "apps"}"
+                },
+            )
             CleaningSession.state.value = CleanState.Finished(
                 results,
                 requested = apps.size,
